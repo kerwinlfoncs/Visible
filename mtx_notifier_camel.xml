@@ -1,0 +1,620 @@
+<!--  START SNIPPET: e1  -->
+<beans xmlns="http://www.springframework.org/schema/beans" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:context="http://www.springframework.org/schema/context" xmlns:camel="http://camel.apache.org/schema/spring" xmlns:broker="http://activemq.apache.org/schema/core" xsi:schemaLocation=" http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context.xsd http://camel.apache.org/schema/spring http://camel.apache.org/schema/spring/camel-spring.xsd http://activemq.apache.org/schema/core http://activemq.apache.org/schema/core/activemq-core.xsd">
+<!--  spring property placeholder, ignore resource not found  -->
+<bean class="org.springframework.beans.factory.config.PropertyPlaceholderConfigurer" id="propertyConfigurer">
+<property name="properties" ref="springPropertiesFactoryBean"/>
+<property name="ignoreUnresolvablePlaceholders" value="true"/>
+</bean>
+<bean id="springPropertiesFactoryBean" class="org.springframework.beans.factory.config.PropertiesFactoryBean">
+<property name="locations">
+<list>
+<value>classpath:mtx_notifier_camel.properties</value>
+<value>file:/opt/mtx/conf/mtx_notifier_camel.properties</value>
+</list>
+</property>
+<property name="ignoreResourceNotFound" value="true"/>
+</bean>
+<!--    <context:property-placeholder  -->
+<!--      location="classpath:mtx_notifier_camel.properties,file:/opt/mtx/conf/mtx_notifier_camel.properties"  -->
+<!--      ignore-resource-not-found="true" />  -->
+<!--  this is Camel properties for using property substitution {{..}}  -->
+<bean id="properties" class="org.apache.camel.component.properties.PropertiesComponent">
+<property name="ignoreMissingLocation" value="true"/>
+<property name="location" value="classpath:mtx_notifier_camel.properties,file:/opt/mtx/conf/mtx_notifier_camel.properties"/>
+</bean>
+<!--  let Spring do its IoC stuff in this package  -->
+<context:component-scan base-package="com.matrixx.camelNotifier"/>
+<!--  START ActiveMQ configuration  -->
+<bean id="jmsConnectionFactory" class="org.apache.activemq.ActiveMQConnectionFactory">
+<property name="brokerURL" value="${activemq.url}"/>
+<property name="userName" value="${activemq.username}"/>
+<property name="password" value="${activemq.password}"/>
+</bean>
+<bean id="pooledConnectionFactory" class="org.apache.activemq.pool.PooledConnectionFactory" init-method="start" destroy-method="stop">
+<property name="maxConnections" value="8"/>
+<property name="connectionFactory" ref="jmsConnectionFactory"/>
+</bean>
+<bean id="jmsConfig" class="org.apache.camel.component.jms.JmsConfiguration">
+<property name="connectionFactory" ref="pooledConnectionFactory"/>
+<property name="concurrentConsumers" value="10"/>
+</bean>
+<bean id="jms" class="org.apache.activemq.camel.component.ActiveMQComponent">
+<property name="configuration" ref="jmsConfig"/>
+</bean>
+<!--  END ActiveMQ configuration  -->
+<!--  MTX DataFormat  -->
+<bean id="engineDataFormat" class="com.matrixx.camelNotifier.dataformat.MtxEngineCMDCDataFormat"/>
+<!--  MTX template component  -->
+<bean id="mtxFreemarker" class="com.matrixx.camelNotifier.mtxfreemarker.MtxFreemarkerComponent">
+<property name="templatePath">
+<value>.;src/main/resources;/opt/mtx/notifier</value>
+</property>
+</bean>
+<!--  MTX APNS Client component - uncomment if required  -->
+<!--    <bean id="mtxapns" class="com.matrixx.camelNotifier.apns.ApnsComponent"/>  -->
+<!--  MTX how to response to engine  -->
+<bean id="responseGenerator" class="com.matrixx.camelNotifier.response.NotificationResponseGenerator"/>
+<!--  MTX how to handle reportable exception (one that we can response to
+                  engine  -->
+<bean id="reportableExceptionHandler" class="com.matrixx.camelNotifier.exception.ReportableExceptionProcessor"/>
+<bean id="globalExceptionHandler" class="com.matrixx.camelNotifier.exception.GlobalExceptionProcessor"/>
+<!--  BodyMapDefaultValues  -->
+<bean id="bodyMapDefaultValues" class="com.matrixx.camelNotifier.parser.BodyMapDefaultValues">
+<constructor-arg value="mtx_notifier_camel_bodyMap.properties;src/main/resources/mtx_notifier_camel_bodyMap.properties;/opt/mtx/conf/mtx_notifier_camel_bodyMap.properties"/>
+<property name="defaultValue">
+<value/>
+</property>
+</bean>
+<bean id="mtxSmtpHeaderFilter" class="com.matrixx.camelNotifier.smtp.MtxSmtpHeaderFilter"/>
+<bean id="mtxRestletHeaderFilter" class="com.matrixx.camelNotifier.filter.MtxRestletHeaderFilterStrategy">
+<property name="additionalOutFilterHeaders">
+<set>
+<value>phonenumber</value>
+<value>subject</value>
+<value>emailid</value>
+<value>language</value>
+</set>
+</property>
+</bean>
+<bean id="mtxSmtpValidator" class="com.matrixx.camelNotifier.smtp.MtxSmtpValidator"/>
+<bean id="mtxSmppValidator" class="com.matrixx.camelNotifier.smpp.MtxSmppValidator"/>
+<bean id="mtxPushTokenProcessor" class="com.matrixx.camelNotifier.push.MtxPushTokenProcessor"/>
+<bean id="notificationNotHandled" class="com.matrixx.camelNotifier.parser.NotificationNotHandled"/>
+<bean id="tokenHeaderSplitter" class="com.matrixx.camelNotifier.push.TokenHeaderSplitter"/>
+<bean id="tokenSplitStrategy" class="com.matrixx.camelNotifier.push.TokenSplitStrategy"/>
+<bean id="jsonListRemoveProcessor" class="com.matrixx.camelNotifier.push.JsonListRemoveProcessor"/>
+<bean id="pushResponseProcessor" class="com.matrixx.camelNotifier.push.PushResponseProcessor"/>
+<bean id="notificationFlagMapper" class="com.matrixx.camelNotifier.parser.NotificationFlagMapper"/>
+<bean id="activeMQRouteBuilder" class="com.matrixx.camelNotifier.route.ActiveMQRouteBuilder"/>
+<!--   hle - SNMP agent  -->
+<bean id="snmpMib" class="com.matrixx.camelNotifier.snmp.NfMib"/>
+<bean id="camelNfWebAgent" class="com.matrixx.camelNotifier.snmp.CamelNfWebAgent">
+<constructor-arg index="0" value="notificationServer"/>
+<constructor-arg index="1" value="${snmpAgent.address:0.0.0.0/5740}"/>
+<constructor-arg index="2" ref="snmpMib"/>
+</bean>
+<bean id="snmpRequestCounter" class="com.matrixx.camelNotifier.snmp.SnmpRequestCounter"/>
+<bean id="snmpMovingAverage" class="com.matrixx.camelNotifier.snmp.MovingAverage"/>
+<!--   USSD  -->
+<bean id="ussdProcessor" class="com.matrixx.camelNotifier.ussd.UssdProcessor">
+<constructor-arg index="0" value="${ussd.request.queue}"/>
+</bean>
+<bean id="ussdResponseProcessor" class="com.matrixx.camelNotifier.ussd.UssdResponseProcessor"/>
+<!--   Multicast  -->
+<bean id="mtxAggregationStrategy" class="com.matrixx.camelNotifier.route.MtxAggregationStrategy"/>
+<!--  if user wants to override header.mtxRecipientList, implements the following processor  -->
+<bean id="overrideMtxRecipientList" class="com.matrixx.camelNotifier.route.OverrideMtxRecipientList"/>
+<!--  Visible Custom Configuration  -->
+<bean id="mdcFormatProcessor" class="com.matrixx.camelNotifier.dataformat.MdcFormatProcessor">
+<!--  value=1 XML, value=2, JSON  -->
+<property name="bodyFormat" value="2"/>
+<property name="jsonObjectInBody" value="false"/>
+</bean>
+<!--  End of Visible Customization  -->
+<!--  Visible Custom Configuration - DateUtils -->
+<bean id="visibleDateUtils" class="com.matrixx.vn.bean.DateBean"/>
+<!--  Visible Custom Configuration - Remove Tax Strings -->
+<bean id="visibleNotifProcessor" class="com.matrixx.vn.processor.main.VisibleNotificationProcessor"/>
+<camelContext xmlns="http://camel.apache.org/schema/spring">
+<routeBuilder ref="activeMQRouteBuilder"/>
+<onException>
+<exception>com.matrixx.camelNotifier.exception.ReportableException</exception>
+<handled>
+<constant>true</constant>
+</handled>
+<to uri="reportableExceptionHandler"/>
+<to uri="direct:responseToEngine"/>
+</onException>
+<onException>
+<exception>java.lang.Exception</exception>
+<handled>
+<constant>true</constant>
+</handled>
+<to uri="globalExceptionHandler"/>
+</onException>
+<route id="main">
+<from uri="seda:mainQueue?concurrentConsumers=5"/>
+<unmarshal>
+<custom ref="engineDataFormat"/>
+</unmarshal>
+<to uri="snmpRequestCounter"/>
+<camel:choice>
+<camel:when>
+<camel:simple>{{mtx.useMulticast}} == 'true'</camel:simple>
+<to uri="direct:v5000-multicast"/>
+</camel:when>
+<camel:otherwise>
+<to uri="direct:v5000"/>
+</camel:otherwise>
+</camel:choice>
+</route>
+<camel:route id="v5000">
+<from uri="direct:v5000"/>
+<!--  NotificationMessageParser  -->
+<to uri="messageParser"/>
+<log message="Notification Template ${header.templateName}." loggingLevel="INFO" logName="matrixx.notificationFlag.template"/>
+<!--  Added on 12/23   -->
+<!--  convert the body to string to use in rules  -->
+<setProperty propertyName="bodyAsString">
+<simple>${bodyAs(String)}</simple>
+</setProperty>
+<!--  Save the originalBody  -->
+<setProperty propertyName="originalBody">
+<simple>${body}</simple>
+</setProperty>
+<setProperty propertyName="clearGpBalForBase">
+<constant>'BASE3VISIBLE23','BASE3VISIBLE23A'</constant>
+</setProperty>
+<setProperty propertyName="checkismonthly">
+<constant>'BASE3VISIBLE23','BASE2VISIBLE22','PLUS3VIS23WB','PLUS2VIS22WB'</constant>
+</setProperty>
+<setProperty propertyName="skipBundleExpiIfPlanActive">
+<constant>'PLUS4VIS25WB','PPLUS1VIS25WB','PLUS4VIS25WBA','PPLUS1VIS25WBA','BASE3VISIBLE23','BASE3VISIBLE23A'</constant>
+</setProperty>
+<camel:choice>
+<camel:when>
+<camel:simple>${header.templateName} in 'balance-expiration/mtxBeforeSubscriberBalanceExpirationNotification'</camel:simple>
+<camel:to uri="visibleNotifProcessor"/>
+</camel:when>
+</camel:choice>
+<camel:choice>
+<camel:when>
+<camel:simple>${header.templateName} in 'balance-expiration/mtxAfterSubscriberBalanceExpirationNotification' and ${body.get(mtxNotification).get(TemplateId)} in '6' and ${body.get(mtxNotification).get(SubscriberData).get(StatusDescription)} in 'Lapse'</camel:simple>
+<setProperty propertyName="transTime">
+<camel:simple>${body.get(mtxNotification).get(SubscriberData).get(CurrentStatusTransitionTime)}</camel:simple>
+</setProperty>
+<log message="CGI-31-TransitionDate: ${property[transTime]}, CurrentDate ${date:now:yyyy-MM-dd HH:mm:ss z}" loggingLevel="INFO" logName="com.matrixx.MtxNotificationMsgType.other"/>
+<setProperty propertyName="diffFromNow">
+<method bean="visibleDateUtils" method="compareNowYYYYMMDD(${property[transTime]})"/>
+</setProperty>
+<camel:choice>
+<camel:when>
+<camel:simple>${property[diffFromNow]} < 1 </camel:simple>
+<log message="CGI-31 - Transition is at least 5 days before today" loggingLevel="INFO" logName="com.matrixx.MtxNotificationMsgType.other"/>
+<camel:to uri="notificationNotHandled"/>
+</camel:when>
+<otherwise>
+<log message="CGI-32 - Transition is at NOT 5 days before today" loggingLevel="INFO" logName="com.matrixx.MtxNotificationMsgType.other"/>
+</otherwise>
+</camel:choice>
+</camel:when>
+</camel:choice>
+<camel:choice>
+<camel:when>
+<camel:simple>${header.templateName} in 'purchased-item-status-change/mtxSubscriberPurchasedItemStatusChangeNotification' and ${body.get(mtxNotification).get(CatalogItemExternalId)} not in 'BASE3VISIBLE23,PLUS3VIS23WB,BASE3VISIBLE23A,PLUS3VIS23WBA,PLUS4VIS25WB,PPLUS1VIS25WB,PLUS4VIS25WBA,PPLUS1VIS25WBA,BASE6VISIBLE25,PLUS6VIS25WB,PPLUS6VIS25WB,Visible_Wearable,Visible_Service_Notification_CI,BASE2VISIBLE22,CDVISIBLE2022,5VISTRAVELPASS,10VISTRAVELPASS,CD3VISIBLE2023,CD2VISIBLE2023,CD2VISIBLE2023A'</camel:simple>
+<camel:to uri="notificationNotHandled"/>
+</camel:when>
+</camel:choice>
+<camel:choice>
+<camel:when>
+<camel:simple>${header.templateName} in 'bundle-expiration/mtxBeforeSubscriberBundleExpirationNotification' and ${body.get(mtxNotification).get(CatalogItemExternalId)} in 'Visible_Unlimited_Retailer' and ${property[bodyAsString]} contains 'ExpirationNotificationOffset=27' and ${property[bodyAsString]} contains 'Duration=1'</camel:simple>
+<camel:to uri="notificationNotHandled"/>
+</camel:when>
+</camel:choice>
+<camel:choice>
+<camel:when>
+<camel:simple>${header.templateName} in 'balance-expiration/mtxBeforeSubscriberBalanceExpirationNotification' and ${body.get(mtxNotification).get(TemplateId)} in '125' and ${property[bodyAsString]} contains 'CycleLength=Month'</camel:simple>
+<camel:to uri="notificationNotHandled"/>
+</camel:when>
+</camel:choice>
+<camel:choice>
+<camel:when>
+<camel:simple>${header.templateName} in 'balance-expiration/mtxBeforeSubscriberBalanceExpirationNotification' and ${body.get(mtxNotification).get(TemplateId)} in '124' and ${property[bodyAsString]} contains 'CycleLength=Month'</camel:simple>
+<camel:to uri="notificationNotHandled"/>
+</camel:when>
+</camel:choice>
+<camel:choice>
+<camel:when>
+<camel:simple>${header.templateName} in 'balance-expiration/mtxBeforeSubscriberBalanceExpirationNotification' and ${body.get(mtxNotification).get(TemplateId)} in '6' and ${property[bodyAsString]} contains 'CycleLength=Year' or ${header.templateName} == 'balance-expiration/mtxBeforeSubscriberBalanceExpirationNotification' and ${body.get(mtxNotification).get(TemplateId)} == '6' and ${property[bodyAsString]} contains 'CycleLength=MultiMonth' </camel:simple>
+<camel:to uri="notificationNotHandled"/>
+</camel:when>
+</camel:choice>
+<camel:choice>
+<camel:when>
+<camel:simple>${header.templateName} in 'balance-expiration/mtxAfterSubscriberBalanceExpirationNotification' and ${body.get(mtxNotification).get(TemplateId)} in '6' and ${property[bodyAsString]} contains 'CycleLength=Year' or ${header.templateName} == 'balance-expiration/mtxAfterSubscriberBalanceExpirationNotification' and ${body.get(mtxNotification).get(TemplateId)} == '6' and ${property[bodyAsString]} contains 'CycleLength=MultiMonth'</camel:simple>
+<camel:to uri="notificationNotHandled"/>
+</camel:when>
+</camel:choice>
+<camel:choice>
+<camel:when>
+<camel:simple>${header.templateName} in 'balance-expiration/mtxAfterSubscriberBalanceExpirationNotification' and ${body.get(mtxNotification).get(TemplateId)} in '125' and ${property[bodyAsString]} contains 'CycleLength=Month'</camel:simple>
+<camel:to uri="notificationNotHandled"/>
+</camel:when>
+</camel:choice>
+<camel:choice>
+<camel:when>
+<camel:simple>${header.templateName} in 'balance-expiration/mtxAfterSubscriberBalanceExpirationNotification' and ${body.get(mtxNotification).get(TemplateId)} in '124' and ${property[bodyAsString]} contains 'CycleLength=Month'</camel:simple>
+<camel:to uri="notificationNotHandled"/>
+</camel:when>
+</camel:choice>
+<camel:choice>
+<camel:when>
+<camel:simple>${header.templateName} in 'balance-expiration/mtxBeforeSubscriberBalanceExpirationNotification' and ${property[bodyAsString]} contains 'PaymentPreference=AutoPay' and ${property[bodyAsString]} contains 'CycleLength=Month' and ${property[bodyAsString]} not contains 'PayerExternalId'</camel:simple>
+<camel:choice>
+<camel:when>
+<camel:jsonpath>$.mtxNotification.SubscriberPurchasedOfferArray[?(@.CatalogItemExternalId in [${property[checkismonthly]}] && @.OfferStatusDescription == 'active')]</camel:jsonpath>
+<camel:to uri="notificationNotHandled"/>
+</camel:when>
+</camel:choice>
+</camel:when>
+</camel:choice>
+<!-- camel:choice>
+<camel:when>
+<camel:simple>${header.templateName} in 'bundle-expiration/mtxAfterSubscriberBundleExpirationNotification' and ${body.get(mtxNotification).get(CatalogItemExternalId)} in 'BASE6VISIBLE25,PLUS6VIS25WB,PPLUS6VIS25WB,BASE3VISIBLE23,PLUS4VIS25WB,PPLUS1VIS25WB,BASE3VISIBLE23A,PLUS4VIS25WBA,PPLUS1VIS25WBA,BASE2VISIBLE22,PLUS2VIS22WB,PLUS3VIS23WB,PLUS3VIS23WBA'</camel:simple>
+<camel:choice>
+<camel:when>
+<camel:jsonpath>$.mtxNotification.SubscriberPurchasedOfferArray[?(@.CatalogItemExternalId in [${property[skipBundleExpiIfPlanActive]}] &amp;&amp; @.OfferStatusDescription == 'active')]</camel:jsonpath>
+<camel:to uri="notificationNotHandled" />
+</camel:when>
+</camel:choice>
+</camel:when>
+</camel:choice -->
+<camel:choice>
+<camel:when>
+<!-- camel:simple>${header.templateName} in 'bundle-expiration/mtxAfterSubscriberBundleExpirationNotification' and ${body.get(mtxNotification).get(CatalogItemExternalId)} in 'PLUS3VIS23WB,PLUS3VIS23WBA,PLUS4VIS25WB,PPLUS1VIS25WB,PLUS4VIS25WBA,PPLUS1VIS25WBA'</camel:simple -->
+<camel:simple>${header.templateName} in 'bundle-expiration/mtxAfterSubscriberBundleExpirationNotification' and ${body.get(mtxNotification).get(CatalogItemExternalId)} in 'BASE6VISIBLE25,PLUS6VIS25WB,PPLUS6VIS25WB,BASE3VISIBLE23,PLUS4VIS25WB,PPLUS1VIS25WB,BASE3VISIBLE23A,PLUS4VIS25WBA,PPLUS1VIS25WBA,BASE2VISIBLE22,PLUS2VIS22WB,PLUS3VIS23WB,PLUS3VIS23WBA'</camel:simple>
+<camel:choice>
+<camel:when>
+<camel:jsonpath>$.mtxNotification.SubscriberPurchasedOfferArray[?(@.CatalogItemExternalId in [${property[clearGpBalForBase]}] && @.OfferStatusDescription == 'active')]</camel:jsonpath>
+<setProperty propertyName="poSubBody">
+<simple>{"$" : "MtxRequestSubscriberPurchaseOffer", "OfferRequestArray" : [{"$" : "MtxPurchasedOfferData", "Attr" : { "$" : "VisiblePurchasedOfferExtension", "ChargeAmount" : 0,"GoodType": "downgrade_gp"},"ExternalId" : "DowngradeGPForfeitureOfferCI"}]}</simple>
+</setProperty>
+<to uri="direct:purchaseSubscriptionOffer"/>
+<setBody>
+<simple>${property[originalBody]}</simple>
+</setBody>
+</camel:when>
+</camel:choice>
+<camel:choice>
+<camel:when>
+<camel:jsonpath>$.mtxNotification.SubscriberPurchasedOfferArray[?(@.CatalogItemExternalId in [${property[skipBundleExpiIfPlanActive]}] && @.OfferStatusDescription == 'active')]</camel:jsonpath>
+<camel:to uri="notificationNotHandled"/>
+</camel:when>
+</camel:choice>
+</camel:when>
+</camel:choice>
+<!--  Visible Custom Configuration  -->
+<log message="Notification Message is other" loggingLevel="DEBUG" logName="com.matrixx.MtxNotificationMsgType.other"/>
+<camel:to uri="mdcFormatProcessor"/>
+<!--  JJ  -->
+<log message="Before insert to apigee queue" loggingLevel="INFO" logName="com.matrixx.MtxNotificationMsgType.other"/>
+<to uri="jms:queue:apigee_notification_queue?timeToLive=3600000"/>
+<convertBodyTo type="String"/>
+<!--  responseToEngine expect the formatted message (normally from template) in body  -->
+<setBody>
+<simple>${body} Message at ${date:now:yyyy-MM-dd HH:mm:ss}</simple>
+</setBody>
+<to uri="direct:responseToEngine"/>
+<!--  End of Visible Customization  -->
+</camel:route>
+<!--  Multicast mode: using recipientList to allow sending to multiple endpoints  -->
+<camel:route id="v5000-multicast">
+<from uri="direct:v5000-multicast"/>
+<!--  NotificationMessageParser  -->
+<to uri="messageParser"/>
+<log message="Notification Template ${header.templateName}." loggingLevel="INFO" logName="matrixx.notificationFlag.template"/>
+<!--   forming the recipientList by appending the endpoint to header mtxRecipientList  -->
+<camel:choice>
+<camel:when>
+<camel:simple>${header.notificationFlagBits[0]}</camel:simple>
+<log message="Notification Flag ${header.notificationFlag} SMTP." loggingLevel="INFO" logName="matrixx.notificationFlag.stmp"/>
+<!--  <camel:to uri="direct:smtpRoute" />  -->
+<setHeader headerName="mtxRecipientList">
+<simple>${header.mtxRecipientList},direct:smtpRoute</simple>
+</setHeader>
+</camel:when>
+</camel:choice>
+<camel:choice>
+<camel:when>
+<camel:simple>${header.notificationFlagBits[1]}</camel:simple>
+<log message="Notification Flag ${header.notificationFlag} SMPP." loggingLevel="INFO" logName="matrixx.notificationFlag.smpp"/>
+<!--  <camel:to uri="direct:smppRoute" />  -->
+<setHeader headerName="mtxRecipientList">
+<simple>${header.mtxRecipientList},direct:smppRoute</simple>
+</setHeader>
+</camel:when>
+</camel:choice>
+<camel:choice>
+<camel:when>
+<camel:simple>${header.notificationFlagBits[2]}</camel:simple>
+<log message="Notification Flag ${header.notificationFlag} USSD" loggingLevel="INFO" logName="matrixx.notificationFlag.ussd"/>
+<!--  <camel:to uri="direct:ussdRoute" />  -->
+<setHeader headerName="mtxRecipientList">
+<simple>${header.mtxRecipientList},direct:ussdRoute</simple>
+</setHeader>
+</camel:when>
+</camel:choice>
+<camel:choice>
+<camel:when>
+<camel:simple>${header.notificationFlagBits[3]}</camel:simple>
+<log message="Notification Flag ${header.notificationFlag} PushNotification" loggingLevel="INFO" logName="matrixx.notificationFlag.push"/>
+<!--  <camel:to uri="direct:pushRoute" />  -->
+<setHeader headerName="mtxRecipientList">
+<simple>${header.mtxRecipientList},direct:pushRoute</simple>
+</setHeader>
+</camel:when>
+</camel:choice>
+<!--  if user wants to override header.mtxRecipientList, implements the following processor  -->
+<to uri="bean:overrideMtxRecipientList"/>
+<log message="header.mtxRecipientList=${header.mtxRecipientList}" loggingLevel="INFO" logName="matrixx.mtxRecipientList"/>
+<camel:choice>
+<camel:when>
+<camel:simple>${header.mtxRecipientList}</camel:simple>
+<!--   in multicast mode, make sure that each point does NOT reply to engine  -->
+<setHeader headerName="skipResponseToEngine">
+<constant>true</constant>
+</setHeader>
+<!--  use comma as a delimiter for String based values  -->
+<recipientList delimiter="," strategyRef="mtxAggregationStrategy">
+<header>mtxRecipientList</header>
+</recipientList>
+<to uri="direct:responseToEngine"/>
+</camel:when>
+<camel:otherwise>
+<log message="Notification Flag ${header.notificationFlag} NOT_HANDLE." loggingLevel="INFO" logName="matrixx.notificationFlag.notHandle"/>
+<camel:to uri="notificationNotHandled"/>
+</camel:otherwise>
+</camel:choice>
+</camel:route>
+<camel:route id="smtpRoute">
+<camel:from uri="direct:smtpRoute"/>
+<toD uri="mtxFreemarker:templates/email/${header.templateName}.ftl?locale=${header.language}"/>
+<camel:choice>
+<camel:when>
+<camel:simple>'{{smtp.server.disable}}' == 'true'</camel:simple>
+<to uri="log:matrixx.smtp?level=INFO&showHeaders=true"/>
+</camel:when>
+<camel:otherwise>
+<to uri="mtxSmtpValidator"/>
+<toD uri="smtp://{{smtp.server}}:{{smtp.port}}?username={{smtp.userName}}&password={{smtp.password}}&from={{smtp.sourceAddress}}&to=${header.emailId}&headerFilterStrategy=#mtxSmtpHeaderFilter"/>
+</camel:otherwise>
+</camel:choice>
+<!--  response to engine only if the header skipResponseToEngine is NOT set -->
+<camel:choice>
+<camel:when>
+<camel:simple>'${header.skipResponseToEngine}' == 'true'</camel:simple>
+<log message="SKIP responseToEngine." loggingLevel="DEBUG" logName="matrixx.responseToEngine"/>
+</camel:when>
+<camel:otherwise>
+<to uri="direct:responseToEngine"/>
+</camel:otherwise>
+</camel:choice>
+</camel:route>
+<camel:route id="smppRoute">
+<camel:from uri="direct:smppRoute"/>
+<!--  MTX-20154  -->
+<setHeader headerName="CamelSmppSourceAddrTon">
+<constant>{{smpp.sourceAddrTon}}</constant>
+</setHeader>
+<setHeader headerName="CamelSmppSourceAddr">
+<constant>{{smpp.sourceAddress}}</constant>
+</setHeader>
+<setHeader headerName="CamelSmppDestAddrNpi">
+<constant>{{smpp.smppDestAddrNpi}}</constant>
+</setHeader>
+<toD uri="mtxFreemarker:templates/sms/${header.templateName}.ftl?locale=${header.language}"/>
+<camel:choice>
+<camel:when>
+<camel:simple>'{{smpp.server.disable}}' == 'true'</camel:simple>
+<to uri="log:matrixx.smpp?level=INFO&showHeaders=true"/>
+</camel:when>
+<camel:otherwise>
+<to uri="mtxSmppValidator"/>
+<to uri="smpp://{{smpp.userName}}@{{smpp.server}}:{{smpp.port}}?password={{smpp.password}}&enquireLinkTimer=3000&transactionTimer=5000&systemType=producer&lazySessionCreation=true"/>
+</camel:otherwise>
+</camel:choice>
+<!--  response to engine only if the header skipResponseToEngine is NOT set -->
+<camel:choice>
+<camel:when>
+<camel:simple>'${header.skipResponseToEngine}' == 'true'</camel:simple>
+<log message="SKIP responseToEngine." loggingLevel="INFO" logName="matrixx.responseToEngine"/>
+</camel:when>
+<camel:otherwise>
+<to uri="direct:responseToEngine"/>
+</camel:otherwise>
+</camel:choice>
+</camel:route>
+<camel:route id="ussdRoute">
+<camel:from uri="direct:ussdRoute"/>
+<toD uri="mtxFreemarker:templates/ussd/${header.templateName}.ftl?locale=${header.language}"/>
+<to uri="bean:ussdProcessor"/>
+<convertBodyTo type="String"/>
+<toD uri="jms:queue:${exchangeProperty.mtxUssdResponseQueue}?concurrentConsumers=10"/>
+<!--  response to engine only if the header skipResponseToEngine is NOT set -->
+<camel:choice>
+<camel:when>
+<camel:simple>'${header.skipResponseToEngine}' == 'true'</camel:simple>
+<log message="SKIP responseToEngine." loggingLevel="INFO" logName="matrixx.responseToEngine"/>
+</camel:when>
+<camel:otherwise>
+<to uri="direct:responseToEngine"/>
+</camel:otherwise>
+</camel:choice>
+</camel:route>
+<camel:route id="pushRoute">
+<camel:from uri="direct:pushRoute"/>
+<to uri="mtxPushTokenProcessor"/>
+<to uri="log:matrixx.push?level=INFO&showHeaders=true"/>
+<!--  Split the messages on tokens using custom splitter, and route each one  -->
+<split strategyRef="tokenSplitStrategy">
+<method bean="tokenHeaderSplitter" method="splitOnHeader"/>
+<choice>
+<when>
+<simple>${header.pushTokenType} == "apns"</simple>
+<setHeader headerName="pushNotifSent">
+<constant>true</constant>
+</setHeader>
+<to uri="direct:apnsRoute"/>
+</when>
+<when>
+<simple>${header.pushTokenType} == "fcm"</simple>
+<setHeader headerName="pushNotifSent">
+<constant>true</constant>
+</setHeader>
+<to uri="direct:fcmRoute"/>
+</when>
+</choice>
+</split>
+<!--  If messages were sent, send the response to the engine. Otherwise,
+                              it's notificationNotHandled  -->
+<choice>
+<when>
+<header>pushNotifSent</header>
+<!--  response to engine only if the header skipResponseToEngine is NOT set  -->
+<camel:choice>
+<camel:when>
+<camel:simple>'${header.skipResponseToEngine}' == 'true'</camel:simple>
+<log message="SKIP responseToEngine." loggingLevel="INFO" logName="matrixx.responseToEngine"/>
+</camel:when>
+<camel:otherwise>
+<to uri="direct:responseToEngine"/>
+</camel:otherwise>
+</camel:choice>
+</when>
+<camel:otherwise>
+<log message="Notification Flag ${header.notificationFlag} NOT_HANDLE. No valid tokens." loggingLevel="INFO" logName="matrixx.notificationFlag.notHandle"/>
+<camel:to uri="notificationNotHandled"/>
+</camel:otherwise>
+</choice>
+</camel:route>
+<camel:route id="apnsRoute">
+<camel:from uri="direct:apnsRoute"/>
+<toD uri="mtxFreemarker:templates/apns/${header.templateName}.ftl?locale=${header.language}"/>
+<to uri="log:matrixx.push.apns?level=INFO&showHeaders=true"/>
+<!--        <to uri="mtxapns:{{apns.server}}?certificate={{apns.certificate}}&amp;certPassword={{apns.certPassword}}&amp;topic={{apns.topic}}"/>  -->
+<!--        <process ref="pushResponseProcessor"/>  -->
+<!--          <choice>  -->
+<!--            <when>  -->
+<!--              <simple>${header.pushSuccess} == 0</simple>  -->
+<!--              <to uri="direct:deleteNotificationToken"/>  -->
+<!--            </when>  -->
+<!--          </choice>  -->
+<!--        <marshal>  -->
+<!--          <json library="Jackson" />  -->
+<!--        </marshal>  -->
+<!--        <convertBodyTo type="String" />  -->
+</camel:route>
+<camel:route id="fcmRoute" streamCache="true">
+<camel:from uri="direct:fcmRoute"/>
+<toD uri="mtxFreemarker:templates/fcm/${header.templateName}.ftl?locale=${header.language}"/>
+<to uri="log:matrixx.push.fcm?level=INFO&showHeaders=true"/>
+<setHeader headerName="CamelHttpMethod">
+<constant>POST</constant>
+</setHeader>
+<setHeader headerName="Authorization">
+<constant>key={{fcm.serverKey}}</constant>
+</setHeader>
+<setHeader headerName="Content-Type">
+<constant>application/json</constant>
+</setHeader>
+<!--        <to uri="https4://{{fcm.pushAddress}}"/>  -->
+<!--        <unmarshal>  -->
+<!--          <json library="Jackson"/>  -->
+<!--        </unmarshal>  -->
+<!--          <process ref="pushResponseProcessor"/>  -->
+<!--        <choice>  -->
+<!--          <when>  -->
+<!--            <simple>${header.pushSuccess} == 0</simple>  -->
+<!--            <to uri="direct:deleteNotificationToken"/>  -->
+<!--          </when>  -->
+<!--        </choice>  -->
+<!--        <convertBodyTo type="String" />  -->
+</camel:route>
+<route id="deleteNotificationToken">
+<description>Deletes a notification token in the Subscriber profile.</description>
+<from uri="direct:deleteNotificationToken"/>
+<setProperty propertyName="originalBody">
+<simple>${body}</simple>
+</setProperty>
+<setHeader headerName="arrayPath">
+<constant>/ContactPushTokenList</constant>
+</setHeader>
+<setHeader headerName="arrayDataElement">
+<simple>${header.pushTokenType}:${header.pushTokens}</simple>
+</setHeader>
+<to uri="direct:getSubscriber"/>
+<process ref="jsonListRemoveProcessor"/>
+<marshal>
+<json library="Jackson"/>
+</marshal>
+<to uri="direct:putSubscriber"/>
+<setBody>
+<simple>${property[originalBody]}</simple>
+</setBody>
+</route>
+<route id="getSubscriber">
+<description>Queries the subscriber details from RSGateway</description>
+<from uri="direct:getSubscriber"/>
+<removeHeaders pattern="CamelHttp*"/>
+<removeHeaders pattern="Authorization"/>
+<setHeader headerName="CamelHttpMethod">
+<constant>GET</constant>
+</setHeader>
+<setBody>
+<constant/>
+</setBody>
+<toD uri="http4://{{rsgateway.http4Url}}/json/subscriber/ObjectId%2B${header.objectId}"/>
+<unmarshal>
+<json library="Jackson"/>
+</unmarshal>
+</route>
+<route id="putSubscriber">
+<description>Updates the subscriber</description>
+<from uri="direct:putSubscriber"/>
+<removeHeaders pattern="CamelHttp*"/>
+<removeHeaders pattern="Authorization"/>
+<setHeader headerName="CamelHttpMethod">
+<constant>PUT</constant>
+</setHeader>
+<toD uri="http4://{{rsgateway.http4Url}}/json/subscriber/ObjectId%2B${header.objectId}"/>
+</route>
+<route id="purchaseSubscriptionOffer">
+<description>Purchase an offer for subscription</description>
+<from uri="direct:purchaseSubscriptionOffer"/>
+<removeHeaders pattern="CamelHttp*"/>
+<removeHeaders pattern="Authorization"/>
+<setHeader headerName="CamelHttpMethod">
+<constant>PUT</constant>
+</setHeader>
+<setBody>
+<simple>${property[poSubBody]}</simple>
+</setBody>
+<log message="CGI-Subscription Purchase Offer Request - ${body}" loggingLevel="INFO" logName="com.matrixx.MtxNotificationMsgType.cgi"/>
+<toD uri="https4://10.0.4.12:8080//rsgateway/data/json/subscription/ObjectId%2B${header.initiatorId}/offers?headerFilterStrategy=#mtxRestletHeaderFilter"/>
+<log message="CGI-Subscription Purchase Offer Response - ${body}" loggingLevel="INFO" logName="com.matrixx.MtxNotificationMsgType.cgi"/>
+</route>
+<camel:route id="compatibilityMode">
+<camel:from uri="direct:compatibilityMode"/>
+<camel:to uri="topicPreprocessor"/>
+</camel:route>
+<camel:route id="responseToEngine">
+<from uri="direct:responseToEngine"/>
+<to uri="responseGenerator"/>
+<marshal>
+<custom ref="engineDataFormat"/>
+</marshal>
+<convertBodyTo type="String"/>
+<toD uri="${exchangeProperty.mtxResponseQueue}"/>
+</camel:route>
+</camelContext>
+</beans>
